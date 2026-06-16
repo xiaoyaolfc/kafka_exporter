@@ -1,0 +1,19 @@
+version: '3'
+services:
+  kafka-exporter:
+    image: kafka-exporter:feature-3az-moniter-exporter
+    container_name: kafka-exporter
+    restart: always
+    ports:
+      - "9308:9308"
+    command:
+      - "--kafka.server=172.108.16.17:9092"
+      - "--kafka.server=172.108.16.18:9092"
+      - "--kafka.server=172.108.16.19:9092"
+      - "--kafka.server=172.108.20.17:9092"
+      - "--kafka.server=172.108.20.18:9092"
+      - "--kafka.server=172.108.20.19:9092"
+      - "--kafka.server=172.108.24.17:9092"
+      - "--kafka.server=172.108.24.18:9092"
+      - "--kafka.server=172.108.24.19:9092"
+      - "--az.broker-map=ac=27,5,31,28,26,32,30,4,24,6,23,25,34,35,33,29|yj=11,21,22,13,8,19,16,12,18,14,7,9,20,15,17,10|lf=39,42,37,45,48,43,44,1,47,3,40,38,41,36,46,2"
