@@ -85,6 +85,8 @@ type Exporter struct {
 	sgChans                 []chan<- prometheus.Metric
 	consumerGroupFetchAll   bool
 	groupMetricsTimeout     time.Duration
+	brokerAZ                map[int32]string // broker ID → AZ name; empty when --az.broker-map not set
+	numAZs                  int              // number of distinct AZ names in brokerAZ
 }
 
 type kafkaOpts struct {
