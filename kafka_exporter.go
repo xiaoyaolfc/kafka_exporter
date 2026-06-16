@@ -484,6 +484,12 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) {
 		)
 	}
 
+	var minISR map[string]int64
+	if len(e.brokerAZ) > 0 {
+		e.collectAZBrokerMetrics(ch)
+		minISR = e.collectTopicMinISR()
+	}
+
 	offset := make(map[string]map[int32]int64)
 
 	now := time.Now()
@@ -528,14 +534,24 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) {
 		e.mu.Lock()
 		offset[topic] = make(map[int32]int64, len(partitions))
 		e.mu.Unlock()
+		if len(e.brokerAZ) > 0 {
+			if val, ok := minISR[topic]; ok {
+				ch <- prometheus.MustNewConstMetric(yigTopicMinISR, prometheus.GaugeValue, float64(val), topic)
+			}
+		}
 		for _, partition := range partitions {
+			partStr := strconv.FormatInt(int64(partition), 10)
 			broker, err := e.client.Leader(topic, partition)
 			if err != nil {
 				klog.Errorf("Cannot get leader of topic %s partition %d: %v", topic, partition, err)
-			} else {
-				ch <- prometheus.MustNewConstMetric(
-					topicPartitionLeader, prometheus.GaugeValue, float64(broker.ID()), topic, strconv.FormatInt(int64(partition), 10),
-				)
+				if len(e.brokerAZ) > 0 {
+					ch <- prometheus.MustNewConstMetric(yigPartitionOffline, prometheus.GaugeValue, 1, topic, partStr)
+				}
+				continue
+			}
+			ch <- prometheus.MustNewConstMetric(topicPartitionLeader, prometheus.GaugeValue, float64(broker.ID()), topic, partStr)
+			if len(e.brokerAZ) > 0 {
+				ch <- prometheus.MustNewConstMetric(yigPartitionOffline, prometheus.GaugeValue, 0, topic, partStr)
 			}
 
 			currentOffset, err := e.client.GetOffset(topic, partition, sarama.OffsetNewest)
@@ -546,7 +562,7 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) {
 				offset[topic][partition] = currentOffset
 				e.mu.Unlock()
 				ch <- prometheus.MustNewConstMetric(
-					topicCurrentOffset, prometheus.GaugeValue, float64(currentOffset), topic, strconv.FormatInt(int64(partition), 10),
+					topicCurrentOffset, prometheus.GaugeValue, float64(currentOffset), topic, partStr,
 				)
 			}
 
@@ -555,7 +571,7 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) {
 				klog.Errorf("Cannot get oldest offset of topic %s partition %d: %v", topic, partition, err)
 			} else {
 				ch <- prometheus.MustNewConstMetric(
-					topicOldestOffset, prometheus.GaugeValue, float64(oldestOffset), topic, strconv.FormatInt(int64(partition), 10),
+					topicOldestOffset, prometheus.GaugeValue, float64(oldestOffset), topic, partStr,
 				)
 			}
 
@@ -564,7 +580,7 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) {
 				klog.Errorf("Cannot get replicas of topic %s partition %d: %v", topic, partition, err)
 			} else {
 				ch <- prometheus.MustNewConstMetric(
-					topicPartitionReplicas, prometheus.GaugeValue, float64(len(replicas)), topic, strconv.FormatInt(int64(partition), 10),
+					topicPartitionReplicas, prometheus.GaugeValue, float64(len(replicas)), topic, partStr,
 				)
 			}
 
@@ -573,27 +589,31 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) {
 				klog.Errorf("Cannot get in-sync replicas of topic %s partition %d: %v", topic, partition, err)
 			} else {
 				ch <- prometheus.MustNewConstMetric(
-					topicPartitionInSyncReplicas, prometheus.GaugeValue, float64(len(inSyncReplicas)), topic, strconv.FormatInt(int64(partition), 10),
+					topicPartitionInSyncReplicas, prometheus.GaugeValue, float64(len(inSyncReplicas)), topic, partStr,
 				)
+			}
+
+			if len(e.brokerAZ) > 0 {
+				e.emitPartitionAZMetrics(ch, topic, partStr, replicas, inSyncReplicas)
 			}
 
 			if broker != nil && replicas != nil && len(replicas) > 0 && broker.ID() == replicas[0] {
 				ch <- prometheus.MustNewConstMetric(
-					topicPartitionUsesPreferredReplica, prometheus.GaugeValue, float64(1), topic, strconv.FormatInt(int64(partition), 10),
+					topicPartitionUsesPreferredReplica, prometheus.GaugeValue, float64(1), topic, partStr,
 				)
 			} else {
 				ch <- prometheus.MustNewConstMetric(
-					topicPartitionUsesPreferredReplica, prometheus.GaugeValue, float64(0), topic, strconv.FormatInt(int64(partition), 10),
+					topicPartitionUsesPreferredReplica, prometheus.GaugeValue, float64(0), topic, partStr,
 				)
 			}
 
 			if replicas != nil && inSyncReplicas != nil && len(inSyncReplicas) < len(replicas) {
 				ch <- prometheus.MustNewConstMetric(
-					topicUnderReplicatedPartition, prometheus.GaugeValue, float64(1), topic, strconv.FormatInt(int64(partition), 10),
+					topicUnderReplicatedPartition, prometheus.GaugeValue, float64(1), topic, partStr,
 				)
 			} else {
 				ch <- prometheus.MustNewConstMetric(
-					topicUnderReplicatedPartition, prometheus.GaugeValue, float64(0), topic, strconv.FormatInt(int64(partition), 10),
+					topicUnderReplicatedPartition, prometheus.GaugeValue, float64(0), topic, partStr,
 				)
 			}
 
@@ -609,7 +629,7 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) {
 
 						consumerGroupLag := currentOffset - offset
 						ch <- prometheus.MustNewConstMetric(
-							consumergroupLagZookeeper, prometheus.GaugeValue, float64(consumerGroupLag), group.Name, topic, strconv.FormatInt(int64(partition), 10),
+							consumergroupLagZookeeper, prometheus.GaugeValue, float64(consumerGroupLag), group.Name, topic, partStr,
 						)
 					}
 				}
