@@ -128,6 +128,7 @@ type kafkaOpts struct {
 	allowAutoTopicCreation   bool
 	verbosityLogLevel        int
 	groupMetricsTimeout      string
+	azBrokerMap              string
 }
 
 type MSKAccessTokenProvider struct {
@@ -355,6 +356,11 @@ func NewExporter(opts kafkaOpts, topicFilter string, topicExclude string, groupF
 	}
 
 	klog.V(TRACE).Infoln("Done Init Clients")
+	parsedBrokerAZ := parseAZBrokerMap(opts.azBrokerMap)
+	azNameSet := make(map[string]struct{})
+	for _, az := range parsedBrokerAZ {
+		azNameSet[az] = struct{}{}
+	}
 	// Init our exporter.
 	return &Exporter{
 		client:                  client,
@@ -375,6 +381,8 @@ func NewExporter(opts kafkaOpts, topicFilter string, topicExclude string, groupF
 		sgChans:                 []chan<- prometheus.Metric{},
 		consumerGroupFetchAll:   config.Version.IsAtLeast(sarama.V2_0_0_0),
 		groupMetricsTimeout:     groupMetricsTimeout,
+		brokerAZ:                parsedBrokerAZ,
+		numAZs:                  len(azNameSet),
 	}, nil
 }
 
@@ -407,6 +415,12 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- consumergroupLag
 	ch <- consumergroupLagZookeeper
 	ch <- consumergroupLagSum
+	ch <- yigBrokerOnlineByAZ
+	ch <- yigPartitionOffline
+	ch <- yigPartitionAZSpreadOK
+	ch <- yigPartitionRF
+	ch <- yigPartitionISRCount
+	ch <- yigTopicMinISR
 }
 
 // Collect fetches the stats from configured Kafka location and delivers them
@@ -916,6 +930,7 @@ func main() {
 	toFlagBoolVar("kafka.allow-auto-topic-creation", "If true, the broker may auto-create topics that we requested which do not already exist, default is false.", false, "false", &opts.allowAutoTopicCreation)
 	toFlagIntVar("verbosity", "Verbosity log level", 0, "0", &opts.verbosityLogLevel)
 	toFlagStringVar("group.metrics.timeout", "Timeout for emitting consumer group metrics", "5m", &opts.groupMetricsTimeout)
+	toFlagStringVar("az.broker-map", "AZ-aware broker map, format: az1=id1,id2|az2=id3,id4. When empty, yig_kafka_* metrics are not emitted.", "", &opts.azBrokerMap)
 
 	plConfig := plog.Config{}
 	plogflag.AddFlags(kingpin.CommandLine, &plConfig)
@@ -1053,6 +1068,8 @@ func setup(
 		"Amount of members in a consumer group",
 		[]string{"consumergroup"}, labels,
 	)
+
+	initAZMetrics(labels)
 
 	if logSarama {
 		sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
