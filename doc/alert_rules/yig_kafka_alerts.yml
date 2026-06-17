@@ -1,0 +1,132 @@
+groups:
+
+  # ──────────────────────────────────────────────────────────────────
+  # M1/M2/M3/M4 — 基于 danielqsj/kafka-exporter 原生指标（端口 9308）
+  # ──────────────────────────────────────────────────────────────────
+  - name: yig_kafka_m1_m4
+    rules:
+
+      # M1 — 单 partition LAG 过高（持续 2 分钟，避免瞬间抖动误报）
+      - alert: YigKafkaPartitionLagHigh
+        expr: kafka_consumergroup_lag > 10000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.consumergroup }}/{{ $labels.topic }}/p{{ $labels.partition }} LAG={{ $value }}"
+
+      # M2 — topic 总 LAG 过高（立即触发）
+      - alert: YigKafkaTopicLagHigh
+        expr: kafka_consumergroup_lag_sum > 100000
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.consumergroup }}/{{ $labels.topic }} 总LAG={{ $value }}"
+
+      # M3 — 消费者 offset 卡死
+      # CURRENT-OFFSET 连续 2 分钟不动，且 LOG-END-OFFSET 仍在增长（确认有新消息入队）
+      - alert: YigKafkaConsumerStuck
+        expr: |
+          increase(kafka_consumergroup_current_offset[2m]) == 0
+          and on(topic, partition)
+          increase(kafka_topic_partition_current_offset[2m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "消费者卡死: {{ $labels.consumergroup }}/{{ $labels.topic }}/p{{ $labels.partition }}"
+
+      # M4 — 高流量 topic 生产者停写（连续 5 分钟 LOG-END-OFFSET 不动）
+      - alert: YigKafkaProducerStuckHighTraffic
+        expr: |
+          increase(kafka_topic_partition_current_offset{
+            topic=~"accessLogTopic|loggingTopic|yig_meta_async_delete"
+          }[5m]) == 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "生产者停写: {{ $labels.topic }}/p{{ $labels.partition }}"
+
+      # M4 — gc topic 中途挂（过去 10min 有写入，但最近 5min 停了）
+      - alert: YigKafkaGcTopicStuck
+        expr: |
+          increase(kafka_topic_partition_current_offset{topic=~"yig_gc_.*"}[10m]) > 0
+          and
+          increase(kafka_topic_partition_current_offset{topic=~"yig_gc_.*"}[5m]) == 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GC中途中断: {{ $labels.topic }}/p{{ $labels.partition }}"
+
+      # M4 — gc topic 今日从未运行（24h 无任何写入，兜底检查）
+      - alert: YigKafkaGcNotRunToday
+        expr: increase(kafka_topic_partition_current_offset{topic=~"yig_gc_.*"}[24h]) == 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GC今日未运行: {{ $labels.topic }}"
+
+
+  # ──────────────────────────────────────────────────────────────────
+  # M5/M6/M7/M8 — 基于自研 yig_kafka_* 指标（端口 9308，--az.broker-map 启用后生效）
+  # ──────────────────────────────────────────────────────────────────
+  - name: yig_kafka_m5_m8
+    rules:
+
+      # M5/M6 — 副本数或 AZ 分布不合规（RF != 3 或副本未跨三个 AZ）
+      - alert: YigKafkaReplicaNotCompliant
+        expr: yig_kafka_partition_replication_factor != 3 or yig_kafka_partition_az_spread_ok == 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "副本不合规: {{ $labels.topic }}/p{{ $labels.partition }}"
+
+      # M5/M6 — ISR 缩容（当前实际同步副本数低于总副本数，运行时故障）
+      - alert: YigKafkaIsrShrunk
+        expr: yig_kafka_partition_isr_count < yig_kafka_partition_replication_factor
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ISR缩容: {{ $labels.topic }}/p{{ $labels.partition }} ISR={{ $value }}"
+
+      # M5/M6 — min.insync.replicas 配置不合规（topic 写入门槛被调低，配置合规问题）
+      - alert: YigKafkaMinIsrConfigWrong
+        expr: yig_kafka_topic_min_insync_replicas != 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "min.insync.replicas配置异常: {{ $labels.topic }} 当前值={{ $value }}，应为2"
+
+      # M7 — broker 总数下线（使用 danielqsj 原生 kafka_brokers 指标，无需自研）
+      - alert: YigKafkaBrokerDown
+        expr: kafka_brokers < 48
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Broker下线，当前在线={{ $value }}/48"
+
+      # M7 — 单 AZ broker 数量不足（每 AZ 正常应有 16 个）
+      - alert: YigKafkaAzBrokerLow
+        expr: yig_kafka_broker_online_by_az < 12
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AZ {{ $labels.az }} broker 仅剩 {{ $value }}/16"
+
+      # M8 — Partition 无 Leader（最高优先级，立即触发）
+      - alert: YigKafkaPartitionOffline
+        expr: yig_kafka_partition_offline == 1
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Partition offline: {{ $labels.topic }}/p{{ $labels.partition }}"

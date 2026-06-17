@@ -81,7 +81,9 @@ scrape_configs:
 
 ### 3. Prometheus 告警规则
 
-在告警规则文件（如 `yig_kafka_alerts.yml`）中追加以下内容：
+完整规则（M1–M8）见 [`doc/alert_rules/yig_kafka_alerts.yml`](alert_rules/yig_kafka_alerts.yml)，直接复制到 Prometheus 规则目录加载即可。
+
+以下为内容速览：
 
 **M5/M6/M7/M8 新规则（自研 exporter 指标）：**
 
