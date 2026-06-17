@@ -12,9 +12,9 @@
 
 | 文件 | 内容 |
 |------|------|
-| `az_metrics.go` | 新建。6 个 `yig_kafka_*` 指标描述符 + `initAZMetrics()`、`parseAZBrokerMap()`、`collectAZBrokerMetrics()`、`collectTopicMinISR()`、`emitPartitionAZMetrics()` |
+| `az_metrics.go` | 新建。6 个 `yig_kafka_*` 指标描述符 + `initAZMetrics()`、`parseAZBrokerMap()`、`collectAZBrokerMetrics()`（含 AZ=0 保底）、`collectTopicMinISR()`（并发拉取）、`emitPartitionAZMetrics()` |
 | `az_metrics_test.go` | 新建。7 个单元测试，全部通过，无需 Kafka 连接 |
-| `kafka_exporter.go` | 8 处最小改动：新增 `brokerAZ`/`numAZs` 字段、`azBrokerMap` 选项、`--az.broker-map` CLI flag、`initAZMetrics()` 调用、`Describe()` 补充、`NewExporter()` 解析、`collect()` 接入 M7+minISR、`getTopicMetrics()` 接入 M8 gate + M5/M6 采集 |
+| `kafka_exporter.go` | 最小改动：新增 `brokerAZ`/`numAZs` 字段、`azBrokerMap` 选项、`--az.broker-map` CLI flag、`initAZMetrics()` 按需调用（有 az.broker-map 才初始化）、`Describe()` 按需注册、`NewExporter()` 解析、`collect()` 接入 M7+minISR、`getTopicMetrics()` 接入 M8 gate + M5/M6 采集 |
 | `deploy/docker-compose.yml` | 新建。生产部署配置，含 9 个 kafka.server 和完整 az.broker-map |
 
 ### 文档

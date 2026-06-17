@@ -3,6 +3,7 @@ package main
 import (
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/IBM/sarama"
 	"github.com/prometheus/client_golang/prometheus"
@@ -79,8 +80,12 @@ func parseAZBrokerMap(s string) map[int32]string {
 }
 
 // collectAZBrokerMetrics emits yig_kafka_broker_online_by_az for each AZ. [M7]
+// All configured AZs are always emitted (including 0) so alert rules fire even when an entire AZ goes down.
 func (e *Exporter) collectAZBrokerMetrics(ch chan<- prometheus.Metric) {
 	counts := make(map[string]int)
+	for _, az := range e.brokerAZ {
+		counts[az] = 0 // pre-initialize so AZs with 0 online brokers still emit
+	}
 	for _, b := range e.client.Brokers() {
 		if az, ok := e.brokerAZ[b.ID()]; ok {
 			counts[az]++
@@ -94,6 +99,8 @@ func (e *Exporter) collectAZBrokerMetrics(ch chan<- prometheus.Metric) {
 // collectTopicMinISR fetches the min.insync.replicas Kafka config value for every topic. [M5/M6]
 // Creates a short-lived ClusterAdmin using the same broker addresses as e.client to avoid
 // sharing the connection (sarama.ClusterAdmin.Close() also closes a shared client).
+// DescribeConfig calls are fanned out concurrently; sarama broker connections are goroutine-safe
+// (requests are multiplexed via correlationID on the same TCP connection).
 func (e *Exporter) collectTopicMinISR() map[string]int64 {
 	result := make(map[string]int64)
 
@@ -114,25 +121,34 @@ func (e *Exporter) collectTopicMinISR() map[string]int64 {
 		return result
 	}
 
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(len(topics))
 	for _, topic := range topics {
-		entries, err := admin.DescribeConfig(sarama.ConfigResource{
-			Type:        sarama.TopicResource,
-			Name:        topic,
-			ConfigNames: []string{"min.insync.replicas"},
-		})
-		if err != nil {
-			klog.Errorf("collectTopicMinISR: DescribeConfig %s: %v", topic, err)
-			continue
-		}
-		for _, entry := range entries {
-			if entry.Name == "min.insync.replicas" {
-				if val, err := strconv.ParseInt(entry.Value, 10, 64); err == nil {
-					result[topic] = val
-				}
-				break
+		go func(t string) {
+			defer wg.Done()
+			entries, err := admin.DescribeConfig(sarama.ConfigResource{
+				Type:        sarama.TopicResource,
+				Name:        t,
+				ConfigNames: []string{"min.insync.replicas"},
+			})
+			if err != nil {
+				klog.Errorf("collectTopicMinISR: DescribeConfig %s: %v", t, err)
+				return
 			}
-		}
+			for _, entry := range entries {
+				if entry.Name == "min.insync.replicas" {
+					if val, err := strconv.ParseInt(entry.Value, 10, 64); err == nil {
+						mu.Lock()
+						result[t] = val
+						mu.Unlock()
+					}
+					break
+				}
+			}
+		}(topic)
 	}
+	wg.Wait()
 	return result
 }
 

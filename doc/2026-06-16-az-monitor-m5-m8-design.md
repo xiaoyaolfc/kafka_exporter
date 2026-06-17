@@ -18,6 +18,7 @@ kafka_exporter/
 ```
 
 **设计原则：**
+
 - `kafka_exporter.go` 的改动全部是"加法"，不删除任何现有逻辑
 - `az_metrics.go` 完全独立，上游 upstream 更新时冲突最少
 - 若未传入 `--az.broker-map`，新指标不注册、不上报，完全向后兼容
@@ -30,14 +31,15 @@ kafka_exporter/
 
 ### M5/M6 — AZ 副本合规
 
-| 指标 | Labels | 类型 | 含义 |
-|------|--------|------|------|
-| `yig_kafka_partition_az_spread_ok` | topic, partition | 运行时 | 1=副本覆盖 ac/yj/lf 三个 AZ；0=不合规 |
-| `yig_kafka_partition_replication_factor` | topic, partition | 运行时 | 副本总数（来自 sarama `Replicas()` 长度） |
-| `yig_kafka_partition_isr_count` | topic, partition | 运行时 | **当前实际** ISR 副本数（来自 sarama `InSyncReplicas()` 长度） |
-| `yig_kafka_topic_min_insync_replicas` | topic | **配置值** | topic 的 min.insync.replicas **Kafka 配置项**，非运行时 ISR 数，用于检查写入门槛是否被调低 |
+| 指标                                       | Labels           | 类型      | 含义                                                                 |
+| ---------------------------------------- | ---------------- | ------- | ------------------------------------------------------------------ |
+| `yig_kafka_partition_az_spread_ok`       | topic, partition | 运行时     | 1=副本覆盖 ac/yj/lf 三个 AZ；0=不合规                                        |
+| `yig_kafka_partition_replication_factor` | topic, partition | 运行时     | 副本总数（来自 sarama `Replicas()` 长度）                                    |
+| `yig_kafka_partition_isr_count`          | topic, partition | 运行时     | **当前实际** ISR 副本数（来自 sarama `InSyncReplicas()` 长度）                  |
+| `yig_kafka_topic_min_insync_replicas`    | topic            | **配置值** | topic 的 min.insync.replicas **Kafka 配置项**，非运行时 ISR 数，用于检查写入门槛是否被调低 |
 
 > `isr_count` 与 `min_insync_replicas` 是两件不同的事：
+> 
 > - `isr_count < replication_factor` → 有副本掉出同步（运行时故障）
 > - `min_insync_replicas != 2` → topic 写入门槛配置被改低（配置合规问题）
 
@@ -45,16 +47,16 @@ kafka_exporter/
 
 ### M7 — 分 AZ Broker 在线统计
 
-| 指标 | Labels | 含义 |
-|------|--------|------|
-| `yig_kafka_broker_online_by_az` | az | 各 AZ 在线 broker 数（ac/yj/lf） |
+| 指标                              | Labels | 含义                         |
+| ------------------------------- | ------ | -------------------------- |
+| `yig_kafka_broker_online_by_az` | az     | 各 AZ 在线 broker 数（ac/yj/lf） |
 
 > broker 在线总数直接使用现有 `kafka_brokers` 指标，不重复上报。
 
 ### M8 — Partition 无 Leader
 
-| 指标 | Labels | 含义 |
-|------|--------|------|
+| 指标                            | Labels           | 含义                         |
+| ----------------------------- | ---------------- | -------------------------- |
 | `yig_kafka_partition_offline` | topic, partition | 1=offline（leader 不可用）；0=正常 |
 
 > **修复原有 bug**：原代码在 `client.Leader()` 失败时只打日志，整条时序从 Prometheus 消失，PromQL 无法可靠探测。改为明确上报 0/1。
@@ -75,11 +77,11 @@ kafka_exporter/
 
 当前生产环境映射：
 
-| AZ | Broker IDs |
-|----|-----------|
-| ac | 27,5,31,28,26,32,30,4,24,6,23,25,34,35,33,29 |
-| yj | 11,21,22,13,8,19,16,12,18,14,7,9,20,15,17,10 |
-| lf | 39,42,37,45,48,43,44,1,47,3,40,38,41,36,46,2 |
+| AZ  | Broker IDs                                   |
+| --- | -------------------------------------------- |
+| ac  | 27,5,31,28,26,32,30,4,24,6,23,25,34,35,33,29 |
+| yj  | 11,21,22,13,8,19,16,12,18,14,7,9,20,15,17,10 |
+| lf  | 39,42,37,45,48,43,44,1,47,3,40,38,41,36,46,2 |
 
 ---
 

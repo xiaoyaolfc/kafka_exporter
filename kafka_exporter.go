@@ -415,12 +415,14 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- consumergroupLag
 	ch <- consumergroupLagZookeeper
 	ch <- consumergroupLagSum
-	ch <- yigBrokerOnlineByAZ
-	ch <- yigPartitionOffline
-	ch <- yigPartitionAZSpreadOK
-	ch <- yigPartitionRF
-	ch <- yigPartitionISRCount
-	ch <- yigTopicMinISR
+	if len(e.brokerAZ) > 0 {
+		ch <- yigBrokerOnlineByAZ
+		ch <- yigPartitionOffline
+		ch <- yigPartitionAZSpreadOK
+		ch <- yigPartitionRF
+		ch <- yigPartitionISRCount
+		ch <- yigTopicMinISR
+	}
 }
 
 // Collect fetches the stats from configured Kafka location and delivers them
@@ -1089,7 +1091,9 @@ func setup(
 		[]string{"consumergroup"}, labels,
 	)
 
-	initAZMetrics(labels)
+	if opts.azBrokerMap != "" {
+		initAZMetrics(labels)
+	}
 
 	if logSarama {
 		sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
