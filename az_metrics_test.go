@@ -4,9 +4,28 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/IBM/sarama"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+// --- buildBrokerAZFromRack tests ---
+
+func TestBuildBrokerAZFromRack_Empty(t *testing.T) {
+	got := buildBrokerAZFromRack([]*sarama.Broker{})
+	if len(got) != 0 {
+		t.Errorf("expected empty map for no brokers, got %v", got)
+	}
+}
+
+func TestBuildBrokerAZFromRack_NullRack(t *testing.T) {
+	// Brokers with empty rack (e.g. test environment) should be excluded.
+	b := sarama.NewBroker("localhost:9092")
+	got := buildBrokerAZFromRack([]*sarama.Broker{b})
+	if len(got) != 0 {
+		t.Errorf("expected empty map when rack is empty, got %v", got)
+	}
+}
 
 // --- parseAZBrokerMap tests ---
 

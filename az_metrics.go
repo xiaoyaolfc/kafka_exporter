@@ -54,6 +54,20 @@ func initAZMetrics(labels map[string]string) {
 	)
 }
 
+// buildBrokerAZFromRack reads the rack field from each broker's metadata and builds a
+// broker ID → AZ name map. Brokers with an empty or missing rack are skipped.
+// This is the default AZ source when --az.broker-map is not provided.
+func buildBrokerAZFromRack(brokers []*sarama.Broker) map[int32]string {
+	result := make(map[int32]string)
+	for _, b := range brokers {
+		rack := b.Rack()
+		if rack != "" {
+			result[b.ID()] = rack
+		}
+	}
+	return result
+}
+
 // parseAZBrokerMap parses the --az.broker-map flag value into a broker ID → AZ name map.
 // Format: "az1=id1,id2,...|az2=id3,id4,..."  Leading/trailing spaces around IDs are trimmed.
 func parseAZBrokerMap(s string) map[int32]string {

@@ -85,8 +85,9 @@ type Exporter struct {
 	sgChans                 []chan<- prometheus.Metric
 	consumerGroupFetchAll   bool
 	groupMetricsTimeout     time.Duration
-	brokerAZ                map[int32]string // broker ID → AZ name; empty when --az.broker-map not set
+	brokerAZ                map[int32]string // broker ID → AZ name; empty when no AZ info available
 	numAZs                  int              // number of distinct AZ names in brokerAZ
+	useRackAZ               bool             // true when AZ info comes from broker rack (vs --az.broker-map)
 }
 
 type kafkaOpts struct {
@@ -356,7 +357,21 @@ func NewExporter(opts kafkaOpts, topicFilter string, topicExclude string, groupF
 	}
 
 	klog.V(TRACE).Infoln("Done Init Clients")
-	parsedBrokerAZ := parseAZBrokerMap(opts.azBrokerMap)
+
+	var parsedBrokerAZ map[int32]string
+	useRackAZ := false
+	if opts.azBrokerMap != "" {
+		parsedBrokerAZ = parseAZBrokerMap(opts.azBrokerMap)
+		klog.Infof("AZ broker map loaded from --az.broker-map: %d brokers configured", len(parsedBrokerAZ))
+	} else {
+		parsedBrokerAZ = buildBrokerAZFromRack(client.Brokers())
+		useRackAZ = true
+		if len(parsedBrokerAZ) > 0 {
+			klog.Infof("AZ info auto-detected from broker rack metadata: %d brokers with rack info", len(parsedBrokerAZ))
+		} else {
+			klog.Info("No broker rack info available; yig_kafka_* AZ metrics will not be emitted")
+		}
+	}
 	azNameSet := make(map[string]struct{})
 	for _, az := range parsedBrokerAZ {
 		azNameSet[az] = struct{}{}
@@ -383,6 +398,7 @@ func NewExporter(opts kafkaOpts, topicFilter string, topicExclude string, groupF
 		groupMetricsTimeout:     groupMetricsTimeout,
 		brokerAZ:                parsedBrokerAZ,
 		numAZs:                  len(azNameSet),
+		useRackAZ:               useRackAZ,
 	}, nil
 }
 
@@ -415,14 +431,12 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- consumergroupLag
 	ch <- consumergroupLagZookeeper
 	ch <- consumergroupLagSum
-	if len(e.brokerAZ) > 0 {
-		ch <- yigBrokerOnlineByAZ
-		ch <- yigPartitionOffline
-		ch <- yigPartitionAZSpreadOK
-		ch <- yigPartitionRF
-		ch <- yigPartitionISRCount
-		ch <- yigTopicMinISR
-	}
+	ch <- yigBrokerOnlineByAZ
+	ch <- yigPartitionOffline
+	ch <- yigPartitionAZSpreadOK
+	ch <- yigPartitionRF
+	ch <- yigPartitionISRCount
+	ch <- yigTopicMinISR
 }
 
 // Collect fetches the stats from configured Kafka location and delivers them
@@ -505,6 +519,18 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric) {
 
 		klog.V(DEBUG).Infof("Took %v to refresh metadata", time.Since(now))
 		e.nextMetadataRefresh = now.Add(e.metadataRefreshInterval)
+
+		if e.useRackAZ {
+			newAZ := buildBrokerAZFromRack(e.client.Brokers())
+			if len(newAZ) > 0 {
+				azSet := make(map[string]struct{})
+				for _, az := range newAZ {
+					azSet[az] = struct{}{}
+				}
+				e.brokerAZ = newAZ
+				e.numAZs = len(azSet)
+			}
+		}
 	}
 
 	now = time.Now()
@@ -952,7 +978,7 @@ func main() {
 	toFlagBoolVar("kafka.allow-auto-topic-creation", "If true, the broker may auto-create topics that we requested which do not already exist, default is false.", false, "false", &opts.allowAutoTopicCreation)
 	toFlagIntVar("verbosity", "Verbosity log level", 0, "0", &opts.verbosityLogLevel)
 	toFlagStringVar("group.metrics.timeout", "Timeout for emitting consumer group metrics", "5m", &opts.groupMetricsTimeout)
-	toFlagStringVar("az.broker-map", "AZ-aware broker map, format: az1=id1,id2|az2=id3,id4. When empty, yig_kafka_* metrics are not emitted.", "", &opts.azBrokerMap)
+	toFlagStringVar("az.broker-map", "AZ-aware broker map, format: az1=id1,id2|az2=id3,id4. When unset, AZ info is auto-detected from broker rack metadata; yig_kafka_* metrics are emitted only when rack info is available.", "", &opts.azBrokerMap)
 
 	plConfig := plog.Config{}
 	plogflag.AddFlags(kingpin.CommandLine, &plConfig)
@@ -1091,9 +1117,7 @@ func setup(
 		[]string{"consumergroup"}, labels,
 	)
 
-	if opts.azBrokerMap != "" {
-		initAZMetrics(labels)
-	}
+	initAZMetrics(labels)
 
 	if logSarama {
 		sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
