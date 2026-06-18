@@ -458,19 +458,19 @@ kill $CONSUMER_PID         # 停止 consumer
 
 ## 四、验收检查表
 
-| M | 告警名 | 触发方式 | 预期结果 | 通过 |
-|---|--------|----------|----------|------|
-| M1 | YigKafkaPartitionLagHigh | 生产 10001 条，不消费 2min | lag > 10000 持续 2min | ☐ |
-| M2 | YigKafkaTopicLagHigh | 生产 100001 条，不消费 | lag_sum > 100000 | ☐ |
-| M3 | YigKafkaConsumerStuck | consumer 暂停，producer 继续 | offset 2min 不动 | ☐ |
-| M4-1 | YigKafkaProducerStuckHighTraffic | loggingTopic 5min 无写入 | current_offset 5min 不动 | ☐ |
-| M4-2 | YigKafkaGcTopicStuck | yig_gc_objs 先写后停 5min | 10min 有，5min 无 | ☐ |
-| M5 | YigKafkaReplicaNotCompliant | BillingTopic RF=1（已有） | RF != 3 | ☐ |
-| M6-1 | YigKafkaReplicaNotCompliant | test-az-spread 副本全在一个 AZ | az_spread_ok=0 | ☐ |
-| M6-2 | YigKafkaMinIsrConfigWrong | test-az-minisr min.isr=1 | min_isr != 2 | ☐ |
-| M6-3 | YigKafkaIsrShrunk | statTopic 已有缩容（已有） | isr_count < rf | ☐ |
-| M7 | YigKafkaAzBrokerLow | 停 AZ1 一个 broker | az1 count < 3（需调低阈值） | ☐ |
-| M8 | YigKafkaPartitionOffline | 停 loggingTopic leader 的所有 ISR broker | offline=1 | ☐ |
+| M    | 告警名                              | 触发方式                                 | 预期结果                   | 通过 |
+|------|----------------------------------|--------------------------------------|------------------------|----|
+| M1   | YigKafkaPartitionLagHigh         | 生产 10001 条，不消费 2min                  | lag > 10000 持续 2min    | ☐  |
+| M2   | YigKafkaTopicLagHigh             | 生产 100001 条，不消费                      | lag_sum > 100000       | ☐  |
+| M3   | YigKafkaConsumerStuck            | consumer 暂停，producer 继续              | offset 2min 不动         | ☐  |
+| M4-1 | YigKafkaProducerStuckHighTraffic | loggingTopic 5min 无写入                | current_offset 5min 不动 | ☐  |
+| M4-2 | YigKafkaGcTopicStuck             | yig_gc_objs 先写后停 5min                | 10min 有，5min 无         | ☐  |
+| M5   | YigKafkaReplicaNotCompliant      | BillingTopic RF=1（已有）                | RF != 3                | ☐  |
+| M6-1 | YigKafkaReplicaNotCompliant      | test-az-spread 副本全在一个 AZ             | az_spread_ok=0         | ☐  |
+| M6-2 | YigKafkaMinIsrConfigWrong        | test-az-minisr min.isr=1             | min_isr != 2           | ☐  |
+| M6-3 | YigKafkaIsrShrunk                | statTopic 已有缩容（已有）                   | isr_count < rf         | ☐  |
+| M7   | YigKafkaAzBrokerLow              | 停 AZ1 一个 broker                      | az1 count < 3（需调低阈值）   | ☐  |
+| M8   | YigKafkaPartitionOffline         | 停 loggingTopic leader 的所有 ISR broker | offline=1              | ☐  |
 
 ---
 
